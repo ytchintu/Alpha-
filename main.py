@@ -35,11 +35,16 @@ from pyfiglet import figlet_format
 from googlesearch import search as google_search
 from pyppeteer import launch
 from pyrogram import Client, filters, enums, idle
+from typing import Dict, Optional
+
 from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ReplyKeyboardMarkup
+    ReplyKeyboardMarkup,
+    ChatPrivileges
+
+from typing import Dict, Optional
 )
 from pyrogram.errors import (
     FloodWait,
@@ -47,6 +52,7 @@ from pyrogram.errors import (
     UserNotParticipant,
     ChatAdminRequired
 )
+
 from pyrogram.enums import ChatType
 from pyrogram.raw.types import (
     InputPeerChannel,
@@ -727,58 +733,127 @@ async def unban_user(client: Client, message: Message):
     except Exception as e:
         await message.edit_text(f"Error: {str(e)}")
 
-@app.on_message(filters.command("promote", prefixes=".") & filters.me)
-async def promote_user(client: Client, message: Message):
-    if not await check_admin(client, message.chat.id, client.me.id):
-        return await message.edit_text("I'm not admin here!")
+ROLES = {
+    "owner": {"full": True, "emoji": "🔴", "desc": "Full control access"},
+    "admin": {"full": True, "emoji": "🟠", "desc": "Administrative privileges"},
+    "mod": {
+        "can_delete_messages": True,
+        "can_restrict_members": True,
+        "can_pin_messages": True,
+        "emoji": "🟡", "desc": "Moderation access"
+    },
+    "helper": {
+        "can_invite_users": True,
+        "can_pin_messages": True,
+        "emoji": "🟢", "desc": "Basic assistance"
+    },
+    "manager": {
+        "can_delete_messages": True,
+        "can_manage_video_chats": True,
+        "can_change_info": True,
+        "emoji": "🔵", "desc": "Content management"
+    }
+}
+
+def get_privileges(role: str) -> ChatPrivileges:
+    """Get privileges for role"""
+    config = ROLES.get(role.lower(), ROLES["admin"])
     
-    user_id = None
-    rank = "Admin"
+    if config.get("full"):
+        return ChatPrivileges(
+            can_manage_chat=True, can_change_info=True, can_post_messages=True,
+            can_edit_messages=True, can_delete_messages=True, can_invite_users=True,
+            can_restrict_members=True, can_pin_messages=True, can_promote_members=True,
+            can_manage_video_chats=True
+        )
+    
+    return ChatPrivileges(**{k: v for k, v in config.items() if k not in ["emoji", "desc"]})
+
+def format_message(action: str, role: str, user_id: int, success: bool = True) -> str:
+    """Format response message"""
+    if not success:
+        return f"❌ **{action.title()} failed**"
+    
+    config = ROLES.get(role.lower(), ROLES["admin"])
+    emoji = config["emoji"]
+    
+    if action == "promote":
+        return f"{emoji} **{role.upper()}** promoted `{user_id}`\n*{config['desc']}*"
+    else:
+        return f"⚫ **DEMOTED** `{user_id}`\n**All privileges removed**"
+
+
+def parse_args(message: Message) -> tuple[Optional[int], str]:
+    """Parse command arguments"""
+    user_id, role = None, "admin"
+    
     if message.reply_to_message:
         user_id = message.reply_to_message.from_user.id
         if len(message.command) > 1:
-            rank = " ".join(message.command[1:])
-    elif len(message.command) > 2:
-        user_id = message.command[1]
-        rank = " ".join(message.command[2:])
+            role = message.command[1]
     elif len(message.command) > 1:
-        user_id = message.command[1]
-    else:
-        return await message.edit_text("Reply to user or provide user ID and rank")
+        try:
+            user_id = int(message.command[1])
+            role = message.command[2] if len(message.command) > 2 else "admin"
+        except ValueError:
+            return None, role
+    
+    return user_id, role
+
+@app.on_message(filters.command("promote", prefixes=".") & filters.me)
+async def promote_user(client: Client, message: Message):
+    """Promote user with admin role"""
+    if not await check_admin(client, message.chat.id, client.me.id):
+        return await message.edit_text("❌ No admin permissions")
+    
+    user_id, role = parse_args(message)
+    if not user_id:
+        roles_list = "\n".join([f"• `{k}` {v['emoji']} - {v['desc']}" for k, v in ROLES.items()])
+        return await message.edit_text(f"**Usage:** `.promote [user_id] [role]`\n\n**Roles:**\n{roles_list}")
     
     try:
-        await client.promote_chat_member(
-            message.chat.id,
-            user_id,
-            privileges=client.get_chat_member(message.chat.id, client.me.id).privileges
-        )
-        await client.set_administrator_title(message.chat.id, user_id, rank)
-        await message.edit_text(f"**Promoted** {user_id} as {rank}!")
+        privileges = get_privileges(role)
+        await client.promote_chat_member(message.chat.id, user_id, privileges)
+        await client.set_administrator_title(message.chat.id, user_id, role.title())
+        await message.edit_text(format_message("promote", role, user_id))
     except Exception as e:
-        await message.edit_text(f"Error: {str(e)}")
+        await message.edit_text(f"❌ Error: `{str(e)}`")
 
 @app.on_message(filters.command("demote", prefixes=".") & filters.me)
 async def demote_user(client: Client, message: Message):
+    """Remove admin privileges"""
     if not await check_admin(client, message.chat.id, client.me.id):
-        return await message.edit_text("I'm not admin here!")
+        return await message.edit_text("❌ No admin permissions")
     
     user_id = None
     if message.reply_to_message:
         user_id = message.reply_to_message.from_user.id
     elif len(message.command) > 1:
-        user_id = message.command[1]
-    else:
-        return await message.edit_text("Reply to user or provide user ID")
+        try:
+            user_id = int(message.command[1])
+        except ValueError:
+            pass
+    
+    if not user_id:
+        return await message.edit_text("**Usage:** `.demote [user_id]` or reply to message")
     
     try:
-        await client.promote_chat_member(
-            message.chat.id,
-            user_id,
-            privileges=None
-        )
-        await message.edit_text(f"**Demoted** {user_id}!")
+        await client.promote_chat_member(message.chat.id, user_id, ChatPrivileges())
+        await client.set_administrator_title(message.chat.id, user_id, "")
+        await message.edit_text(format_message("demote", "", user_id))
     except Exception as e:
-        await message.edit_text(f"Error: {str(e)}")
+        await message.edit_text(f"❌ Error: `{str(e)}`")
+
+@app.on_message(filters.command("roles", prefixes=".") & filters.me)
+async def show_roles(client: Client, message: Message):
+    """Show available admin roles"""
+    roles_text = "**🎭 Available Roles:**\n\n"
+    for role, config in ROLES.items():
+        roles_text += f"{config['emoji']} **{role.upper()}**\n**{config['desc']}**\n\n"
+    
+    roles_text += "**Usage:** `.promote <user> <role>`"
+    await message.edit_text(roles_text)
+
 
 @app.on_message(filters.command("pin", prefixes=".") & filters.me)
 async def pin_message(client: Client, message: Message):
@@ -3770,7 +3845,6 @@ async def unified_message_handler(client: Client, message: Message):
         except:
             pass
         return
-    
 
     if message.new_chat_members:
         for user in message.new_chat_members:
@@ -3788,7 +3862,6 @@ async def unified_message_handler(client: Client, message: Message):
                 pass
         return
     
-
     if message.text:
         text = message.text.lower()
         if message.chat.type == ChatType.PRIVATE:
