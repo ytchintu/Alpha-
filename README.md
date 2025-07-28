@@ -33,8 +33,9 @@
 | `.ban` | `.ban [reply/user_id]` | Ban user from group |
 | `.unban` | `.unban [user_id]` | Unban user from group |
 | `.kick` | `.kick [reply/user_id]` | Kick user from group |
-| `.promote` | `.promote [reply/user_id] [rank]` | Promote user to admin |
+| `.promote` | `.promote [reply/user_id] [role]` | Promote user to admin |
 | `.demote` | `.demote [reply/user_id]` | Demote admin to member |
+| `.roles` | `.demote` | List the roles and usages |
 | `.pin` | `.pin [reply]` | Pin replied message |
 | `.unpin` | `.unpin [reply]` | Unpin replied message |
 | `.vc` | `.vc` | Turn on voice chat |
