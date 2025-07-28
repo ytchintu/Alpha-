@@ -778,7 +778,7 @@ def format_message(action: str, role: str, user_id: int, success: bool = True) -
     emoji = config["emoji"]
     
     if action == "promote":
-        return f"{emoji} **{role.upper()}** promoted `{user_id}`\n*{config['desc']}*"
+        return f"{emoji} **{role.upper()}** promoted `{user_id}`\n**{config['desc']}**"
     else:
         return f"⚫ **DEMOTED** `{user_id}`\n**All privileges removed**"
 
