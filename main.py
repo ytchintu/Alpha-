@@ -7,68 +7,63 @@
 Built with ❤️ for the Telegram community.
 """
 
-import os
-import io
-import re
-import time
-import json
-import math
-import base64
-import random, string
-import socket
-import hashlib
-import logging
 import asyncio
-from datetime import datetime, timedelta
-from urllib.parse import urlparse, quote_plus
+import base64
+import hashlib
+import io
+import json
+import logging
+import math
+import os
+import platform
+import random
+import re
+import socket
+import statistics
+import string
+import sys
+import time
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
+from urllib.parse import quote_plus, urlparse
+
 import aiohttp
-import requests
 import pytz
 import qrcode
+import requests
 import feedparser
-import whoisdomain as whois
 from PIL import Image
 from bs4 import BeautifulSoup
 from pyfiglet import figlet_format
-from googlesearch import search as google_search
 from pyppeteer import launch
-from pyrogram import Client, filters, enums, idle
-from typing import Dict, Optional
+from googlesearch import search as google_search
+import whoisdomain as whois
 
+from pyrogram import Client, filters, enums, idle
 from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     ReplyKeyboardMarkup,
-    ChatPrivileges
+    ChatPrivileges,
 )
-from typing import Dict, Optional
 from pyrogram.errors import (
     FloodWait,
     RPCError,
     UserNotParticipant,
-    ChatAdminRequired
+    ChatAdminRequired,
 )
-
 from pyrogram.enums import ChatType
 from pyrogram.raw.types import (
     InputPeerChannel,
     UpdateGroupCall,
     InputGroupCall,
 )
-
-from pyrogram.raw.functions.account import (
-    UpdateProfile,
-    UpdateUsername
-)
+from pyrogram.raw.functions.account import UpdateProfile, UpdateUsername
 from pyrogram.raw.functions.channels import EditTitle
-from pyrogram.raw.functions.phone import (
-    CreateGroupCall,
-)
+from pyrogram.raw.functions.phone import CreateGroupCall
 
-import sys
 from config import API_ID, API_HASH, SESSION_STRING, UNPLASH_API as api_key
 
 if not API_ID or not API_HASH or not SESSION_STRING:
@@ -115,6 +110,7 @@ auto_replies = {}
 blocked_users = set()
 notes = {}
 reminders = {}
+speed_history = []
 custom_quotes = {}
 custom_commands = {}
 scheduled_tasks = {}
@@ -3472,9 +3468,230 @@ async def system_info(client: Client, message: Message):
     except Exception as e:
         await message.edit_text(f"**Error:** {str(e)}")
 
+
 @app.on_message(filters.command("speedtest", prefixes=".") & filters.me)
 async def speed_test(client: Client, message: Message):
-    await message.edit_text("**Running speed test...** (Implementation pending)")
+    try:
+        args = message.text.split()[1:] if len(message.text.split()) > 1 else []
+        mode = args[0].lower() if args else "quick"
+        
+        if mode in ["q", "quick"]:
+            await quick_speedtest(message)
+        elif mode in ["adv", "advanced"]:
+            await advanced_speedtest(message)
+        else:
+            await message.edit_text("**Usage:** `.speedtest [q/quick] [adv/advanced]`")
+            
+    except Exception as e:
+        await message.edit_text(f"**❌ Speedtest failed:** `{str(e)}`")
+
+async def quick_speedtest(message):
+    await message.edit_text("**⚡ Quick Speedtest**\n\n🏓 Testing ping...")
+    start = time.time()
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://www.google.com', timeout=5) as r:
+            pass
+    ping = round((time.time() - start) * 1000, 2)
+
+    await message.edit_text("**⚡ Quick Speedtest**\n\n⬇️ Testing download...")
+    start = time.time()
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://speed.cloudflare.com/__down?bytes=10000000', timeout=20) as r:
+            size = 0
+            async for chunk in r.content.iter_chunked(8192):
+                size += len(chunk)
+    duration = time.time() - start
+    download = round((size * 8) / (duration * 1024 * 1024), 2)
+
+    await message.edit_text("**⚡ Quick Speedtest**\n\n⬆️ Testing upload...")
+    data = b'0' * (1024 * 1024)
+    start = time.time()
+    async with aiohttp.ClientSession() as session:
+        async with session.post('https://httpbin.org/post', data=data, timeout=15) as r:
+            pass
+    upload = round((len(data) * 8) / ((time.time() - start) * 1024 * 1024), 2)
+
+    if download >= 100: quality = "🟢 Excellent"
+    elif download >= 50: quality = "🟡 Good"
+    elif download >= 25: quality = "🟠 Fair"
+    else: quality = "🔴 Poor"
+
+    result = f"""**⚡ Quick Speedtest Results**
+
+**📊 Quality:** {quality}
+**🏓 Ping:** {ping} ms
+**⬇️ Download:** {download} Mbps  
+**⬆️ Upload:** {upload} Mbps
+
+**📅 {datetime.now().strftime('%H:%M:%S')}** • Use `.speedtest adv` for detailed analysis"""
+    await message.edit_text(result)
+
+async def advanced_speedtest(message):
+    results = {}
+    await message.edit_text("**🚀 Advanced Speedtest**\n\n📊 System analysis...")
+    try:
+        import psutil
+        results['system'] = {
+            'os': f"{platform.system()} {platform.release()}",
+            'cpu': psutil.cpu_count(),
+            'ram': f"{round(psutil.virtual_memory().available/1024**3, 1)}GB available"
+        }
+    except:
+        results['system'] = {'info': 'Limited system info available'}
+
+    await message.edit_text("**🚀 Advanced Speedtest**\n\n🌐 Network analysis...")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://api.ipify.org?format=json', timeout=5) as r:
+                ip_data = await r.json()
+            async with session.get(f'https://ipapi.co/{ip_data["ip"]}/json/', timeout=5) as r:
+                geo_data = await r.json()
+        results['network'] = {
+            'ip': ip_data['ip'],
+            'isp': geo_data.get('org', 'Unknown'),
+            'location': f"{geo_data.get('city', 'Unknown')}, {geo_data.get('country_name', 'Unknown')}"
+        }
+    except:
+        results['network'] = {'info': 'Network info unavailable'}
+
+    await message.edit_text("**🚀 Advanced Speedtest**\n\n🏓 Multi-server ping test...")
+    servers = {'Google': 'https://www.google.com', 'Cloudflare': 'https://1.1.1.1', 'GitHub': 'https://github.com'}
+    ping_results = {}
+    for name, url in servers.items():
+        try:
+            times = []
+            for _ in range(3):
+                start = time.time()
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, timeout=3) as r:
+                        pass
+                times.append((time.time() - start) * 1000)
+                await asyncio.sleep(0.2)
+            ping_results[name] = {
+                'avg': round(statistics.mean(times), 1),
+                'jitter': round(statistics.stdev(times), 1) if len(times) > 1 else 0
+            }
+        except:
+            ping_results[name] = {'avg': 999, 'jitter': 999}
+    results['ping'] = ping_results
+
+    await message.edit_text("**🚀 Advanced Speedtest**\n\n📈 Connection stability...")
+    try:
+        stability_times = []
+        for _ in range(5):
+            start = time.time()
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://www.google.com', timeout=3) as r:
+                    pass
+            stability_times.append((time.time() - start) * 1000)
+            await asyncio.sleep(0.5)
+        avg_ping = statistics.mean(stability_times)
+        jitter = statistics.stdev(stability_times)
+        results['stability'] = {
+            'avg_ping': round(avg_ping, 1),
+            'jitter': round(jitter, 1),
+            'quality': 'Excellent' if jitter < 5 else 'Good' if jitter < 15 else 'Poor'
+        }
+    except:
+        results['stability'] = {'quality': 'Test failed'}
+
+    await message.edit_text("**🚀 Advanced Speedtest**\n\n⬇️ Multi-size download test...")
+    download_results = {}
+    test_sizes = [5, 25, 50]
+    for size_mb in test_sizes:
+        try:
+            start = time.time()
+            async with aiohttp.ClientSession() as session:
+                url = f'https://speed.cloudflare.com/__down?bytes={size_mb * 1024 * 1024}'
+                async with session.get(url, timeout=30) as r:
+                    total = 0
+                    async for chunk in r.content.iter_chunked(8192):
+                        total += len(chunk)
+            duration = time.time() - start
+            speed = round((total * 8) / (duration * 1024 * 1024), 2)
+            download_results[f'{size_mb}MB'] = speed
+        except:
+            download_results[f'{size_mb}MB'] = 0
+    results['download'] = download_results
+
+    await message.edit_text("**Advanced Speedtest**\n\n⬆️ Upload test...")
+    try:
+        data = b'0' * (2 * 1024 * 1024)
+        start = time.time()
+        async with aiohttp.ClientSession() as session:
+            async with session.post('https://httpbin.org/post', data=data, timeout=20) as r:
+                pass
+        upload_speed = round((len(data) * 8) / ((time.time() - start) * 1024 * 1024), 2)
+        results['upload'] = upload_speed
+    except:
+        results['upload'] = 0
+
+    await message.edit_text("**Advanced Speedtest**\n\n🔍 DNS resolution test...")
+    dns_servers = {'Cloudflare': '1.1.1.1', 'Google': '8.8.8.8', 'OpenDNS': '208.67.222.222'}
+    dns_results = {}
+    for name, server in dns_servers.items():
+        try:
+            start = time.time()
+            socket.gethostbyname('google.com')
+            dns_results[name] = round((time.time() - start) * 1000, 1)
+        except:
+            dns_results[name] = 999
+    results['dns'] = dns_results
+
+    sys_info = results.get('system', {})
+    net_info = results.get('network', {})
+    ping_data = results.get('ping', {})
+    stability = results.get('stability', {})
+    downloads = results.get('download', {})
+
+    report = f"""**Advanced Speedtest Results**
+
+**💻 System:** {sys_info.get('os', 'N/A')} • {sys_info.get('cpu', 'N/A')} cores • {sys_info.get('ram', 'N/A')}
+**🌐 Network:** {net_info.get('isp', 'N/A')} • {net_info.get('location', 'N/A')}
+
+**🏓 Multi-Server Ping:"""
+    for server, data in ping_data.items():
+        report += f"\n• {server}: {data['avg']}ms (±{data['jitter']}ms)"
+
+    report += f"""
+
+**📊 Connection Quality:**
+• Stability: {stability.get('quality', 'N/A')} (Jitter: {stability.get('jitter', 'N/A')}ms)
+
+**⬇️ Download Speeds:**"""
+    for size, speed in downloads.items():
+        report += f"\n• {size}: {speed} Mbps"
+
+    avg_download = round(sum(downloads.values()) / len(downloads), 1) if downloads else 0
+
+    report += f"""
+
+**⬆️ Upload:** {results.get('upload', 'N/A')} Mbps
+**🔍 DNS:** {min(results.get('dns', {}).values(), default='N/A')}ms (fastest)
+
+**📈 Overall Score:** {avg_download} Mbps avg • {stability.get('quality', 'Unknown')} stability
+**📅 Completed:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+    await message.edit_text(report)
+
+@app.on_message(filters.command("speedhistory", prefixes=".") & filters.me)
+async def speed_history_cmd(client: Client, message: Message):
+    if not speed_history:
+        await message.edit_text("**📈 Speed History**\n\nNo tests recorded yet. Run `.speedtest` first!")
+        return
+    history_text = "**📈 Speed History (Last 10 tests)**\n\n"
+    for i, record in enumerate(speed_history[-10:], 1):
+        history_text += f"**{i}.** {record['time']} • ⬇️{record['download']}Mbps • 🏓{record['ping']}ms\n"
+    await message.edit_text(history_text)
+
+def save_speed_result(download, ping, upload=None):
+    speed_history.append({
+        'time': datetime.now().strftime('%m/%d %H:%M'),
+        'download': download,
+        'ping': ping,
+        'upload': upload
+    })
+    if len(speed_history) > 50:
+        speed_history.pop(0)
 
 @app.on_message(filters.command("logs", prefixes=".") & filters.me)
 async def get_logs(client: Client, message: Message):
