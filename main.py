@@ -43,9 +43,8 @@ from pyrogram.types import (
     InlineKeyboardButton,
     ReplyKeyboardMarkup,
     ChatPrivileges
-
-from typing import Dict, Optional
 )
+from typing import Dict, Optional
 from pyrogram.errors import (
     FloodWait,
     RPCError,
