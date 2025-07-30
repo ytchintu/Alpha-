@@ -16,3 +16,5 @@ flask
 werkzeug==2.2.2
 deep-translator
 psutil
+matplotlib
+speedtest-cli
