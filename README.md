@@ -49,6 +49,9 @@
 | `.bots` | `.bots` | List all bots in group |
 | `.users` | `.users` | List all users in group |
 | `.zombies` | `.zombies` | Find deleted accounts |
+| `.deservice` | `.delservice [on/off or direct` | Service messages deletion on off|
+| `.keepservice` | `.keepservice [serive type eg. voice_chat]` | to keep service type from deletion |
+| `.servicestatus` | `.servicestatus` | Get current status of deletion |
 | `.settitle` | `.settitle [title]` | Set group title |
 | `.restoretitle` | `.restoretitle` | Restore original title |
 | `.welcome` | `.welcome [on/off] [msg]` | Set welcome message |
