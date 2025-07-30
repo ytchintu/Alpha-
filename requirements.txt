@@ -13,3 +13,4 @@ pyrofork
 tgcrypto
 flask
 werkzeug==2.2.2
+deep-translator
