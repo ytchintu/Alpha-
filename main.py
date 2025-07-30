@@ -135,6 +135,35 @@ auto_reactions = {}
 scheduled_messages = {}
 user_aliases = {}
 group_aliases = {}
+SERVICE_DELETION_ENABLED = True
+KEEP_SERVICE_TYPES = set()
+SERVICE_TYPE_MAP = {
+    'join': ['new_chat_members', 'chat_member_updated'],
+    'left': ['left_chat_member'],
+    'pin': ['pinned_message'],
+    'photo': ['new_chat_photo', 'delete_chat_photo'],
+    'name': ['new_chat_title'],
+    'voice': ['voice_chat_started', 'voice_chat_ended'],
+    'video': ['video_chat_started', 'video_chat_ended', 'video_chat_participants_invited'],
+    'description': ['new_chat_description'],
+    'migrate': ['migrate_to_chat_id', 'migrate_from_chat_id'],
+    'boost': ['chat_boost'],
+    'background': ['chat_background_set'],
+    'forum': ['forum_topic_created', 'forum_topic_edited', 'forum_topic_closed', 'forum_topic_reopened'],
+    'payment': ['successful_payment', 'invoice'],
+    'game': ['game_high_score'],
+    'contact': ['contact_registered']
+}
+
+def get_service_type(message):
+    if not message.service:
+        return None
+    service_str = str(message.service).lower()
+    for service_name, patterns in SERVICE_TYPE_MAP.items():
+        for pattern in patterns:
+            if pattern in service_str:
+                return service_name
+    return str(message.service).split('(')[0].lower()
 
 
 def load_data():
@@ -163,6 +192,7 @@ def load_data():
                         variable.update(data)
     except Exception as e:
         logger.error(f"Error loading  {e}")
+
 
 
 def save_data():
@@ -215,6 +245,9 @@ HELP_CATEGORIES = {
 - `.goodbye [on/off] [msg]` - Goodbye message
 - `.filter [trigger] [response]` - Add filter
 - `.filters` - List filters
+- `.keepservice` - to keep service message
+- `.delservice` - service on / off deletion
+- `.servicesatatus` - check status of deletion
 - `.stop [trigger]` - Remove filter""",
 
     "media": """**💾 MEDIA & STORAGE:**
@@ -872,6 +905,176 @@ async def pin_message(client: Client, message: Message):
         await message.edit_text("**Pinned!**")
     except Exception as e:
         await message.edit_text(f"Error: {str(e)}")
+
+
+@app.on_message(filters.command("keepservice", prefixes=".") & filters.me)
+async def manage_keep_service(client: Client, message: Message):
+    global KEEP_SERVICE_TYPES
+    args = message.command[1:] if len(message.command) > 1 else []
+    if not args:
+        if KEEP_SERVICE_TYPES:
+            keep_list = "🛡️ **Protected Service Types:**\n"
+            for service_type in sorted(KEEP_SERVICE_TYPES):
+                keep_list += f"• `{service_type}`\n"
+            keep_list += f"\n📊 **Total Protected:** {len(KEEP_SERVICE_TYPES)} types"
+        else:
+            keep_list = "❌ **No service types are protected**\nAll service messages will be deleted"
+        status = "✅ ENABLED" if SERVICE_DELETION_ENABLED else "❌ DISABLED"
+        await message.edit_text(
+            f"🔧 **Service Deletion Status:** {status}\n\n"
+            f"{keep_list}\n\n"
+            f"**📝 Usage:**\n"
+            f"• `.keepservice pin voice` - Protect pin and voice messages\n"
+            f"• `.keepservice -pin` - Remove pin from protection\n"
+            f"• `.keepservice clear` - Remove all protections\n"
+            f"• `.keepservice list` - Show all available types\n"
+            f"• `.delservice` - Toggle auto-deletion on/off"
+        )
+        return
+    if args[0].lower() == "list":
+        type_list = "📋 **Available Service Types:**\n\n"
+        for service_name, patterns in SERVICE_TYPE_MAP.items():
+            description = {
+                'join': 'User joined group',
+                'left': 'User left group', 
+                'pin': 'Message pinned/unpinned',
+                'photo': 'Group photo changed',
+                'name': 'Group name changed',
+                'voice': 'Voice chat started/ended',
+                'video': 'Video chat events',
+                'description': 'Group description changed',
+                'migrate': 'Group migrated',
+                'boost': 'Group boosted',
+                'background': 'Chat background changed',
+                'forum': 'Forum topic events',
+                'payment': 'Payment messages',
+                'game': 'Game score messages',
+                'contact': 'Contact registered'
+            }.get(service_name, 'Other service message')
+            protected = "🛡️" if service_name in KEEP_SERVICE_TYPES else "🗑️"
+            type_list += f"{protected} `{service_name}` - {description}\n"
+        type_list += f"\n**Legend:** 🛡️ Protected | 🗑️ Will be deleted"
+        await message.edit_text(type_list)
+        return
+    if args[0].lower() == "clear":
+        KEEP_SERVICE_TYPES.clear()
+        await message.edit_text(
+            "🧹 **All service type protections cleared!**\n\n"
+            "❌ All service messages will now be deleted automatically"
+        )
+        return
+    added = []
+    removed = []
+    invalid = []
+    for arg in args:
+        if arg.startswith('-'):
+            service_type = arg[1:].lower()
+            if service_type in KEEP_SERVICE_TYPES:
+                KEEP_SERVICE_TYPES.remove(service_type)
+                removed.append(service_type)
+            else:
+                invalid.append(f"'{service_type}' (not in keep list)")
+        else:
+            service_type = arg.lower()
+            if service_type in SERVICE_TYPE_MAP:
+                KEEP_SERVICE_TYPES.add(service_type)
+                added.append(service_type)
+            else:
+                invalid.append(f"'{service_type}' (unknown type)")
+    response = "🔧 **Service Keep List Updated!**\n\n"
+    if added:
+        response += f"✅ **Added to protection:**\n"
+        for item in added:
+            response += f"• `{item}`\n"
+        response += "\n"
+    if removed:
+        response += f"❌ **Removed from protection:**\n"
+        for item in removed:
+            response += f"• `{item}`\n"
+        response += "\n"
+    if invalid:
+        response += f"⚠️ **Invalid items:**\n"
+        for item in invalid:
+            response += f"• {item}\n"
+        response += "\n"
+    if KEEP_SERVICE_TYPES:
+        response += f"🛡️ **Currently protected:** {', '.join(sorted(KEEP_SERVICE_TYPES))}"
+    else:
+        response += "❌ **No protections active** - All service messages will be deleted"
+    await message.edit_text(response)
+
+@app.on_message(filters.command("delservice", prefixes=".") & filters.me)
+async def toggle_service_deletion(client: Client, message: Message):
+    global SERVICE_DELETION_ENABLED
+    args = message.command[1:] if len(message.command) > 1 else []
+    if args:
+        arg = args[0].lower()
+        if arg in ['on', 'enable', 'true', '1']:
+            SERVICE_DELETION_ENABLED = True
+        elif arg in ['off', 'disable', 'false', '0']:
+            SERVICE_DELETION_ENABLED = False
+        else:
+            return await message.edit_text(
+                "❌ **Invalid argument!**\n\n"
+                "**Usage:**\n"
+                "• `.delservice` - Toggle on/off\n"
+                "• `.delservice on` - Force enable\n"
+                "• `.delservice off` - Force disable"
+            )
+    else:
+        SERVICE_DELETION_ENABLED = not SERVICE_DELETION_ENABLED
+    status = "✅ ENABLED" if SERVICE_DELETION_ENABLED else "❌ DISABLED"
+    emoji = "🗑️" if SERVICE_DELETION_ENABLED else "⏸️"
+    protected_info = ""
+    if KEEP_SERVICE_TYPES and SERVICE_DELETION_ENABLED:
+        protected_info = f"\n\n🛡️ **Protected types:** {', '.join(sorted(KEEP_SERVICE_TYPES))}"
+    elif SERVICE_DELETION_ENABLED:
+        protected_info = f"\n\n❌ **No protections** - All service messages will be deleted"
+    await message.edit_text(
+        f"{emoji} **Auto Service Message Deletion:** {status}\n\n"
+        f"{'🔄 Service messages will be automatically deleted' if SERVICE_DELETION_ENABLED else '⏸️ Service messages will NOT be deleted'}"
+        f"{protected_info}\n\n"
+        f"**💡 Quick Commands:**\n"
+        f"• `.keepservice pin voice` - Protect pin & voice messages\n"
+        f"• `.keepservice list` - See all available types\n"
+        f"• `.delservice` - Toggle this setting"
+    )
+
+@app.on_message(filters.service & ~filters.me)
+async def auto_delete_service_messages(client: Client, message: Message):
+    global SERVICE_DELETION_ENABLED, KEEP_SERVICE_TYPES
+    if not SERVICE_DELETION_ENABLED:
+        return
+    service_type = get_service_type(message)
+    if not service_type:
+        return
+    if service_type in KEEP_SERVICE_TYPES:
+        print(f"🛡️ Keeping {service_type} service message (protected)")
+        return
+    try:
+        await message.delete()
+        print(f"🗑️ Auto-deleted {service_type} service message")
+    except Exception as e:
+        print(f"❌ Failed to delete {service_type} service message: {e}")
+
+@app.on_message(filters.command("servicestatus", prefixes=".") & filters.me)
+async def show_service_status(client: Client, message: Message):
+    global SERVICE_DELETION_ENABLED, KEEP_SERVICE_TYPES
+    status = "✅ ENABLED" if SERVICE_DELETION_ENABLED else "❌ DISABLED"
+    if KEEP_SERVICE_TYPES:
+        protected = f"🛡️ **Protected:** {', '.join(sorted(KEEP_SERVICE_TYPES))}"
+    else:
+        protected = "❌ **No protected types** (all will be deleted)"
+    await message.edit_text(
+        f"📊 **Service Message Settings**\n\n"
+        f"🔧 **Auto-Deletion:** {status}\n"
+        f"{protected}\n\n"
+        f"**📝 Commands:**\n"
+        f"• `.delservice` - Toggle auto-deletion\n"
+        f"• `.keepservice pin voice` - Protect specific types\n"
+        f"• `.keepservice list` - Show all available types"
+    )
+    
 
 @app.on_message(filters.command("unpin", prefixes=".") & filters.me)
 async def unpin_message(client: Client, message: Message):
