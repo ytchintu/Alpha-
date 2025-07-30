@@ -1703,37 +1703,207 @@ async def search_command(client: Client, message: Message):
 
 
 @app.on_message(filters.command("tr", prefixes=".") & filters.me)
-async def translate_text(client: Client, message: Message):
+async def ggn_translate(client: Client, message: Message):
+    args = message.command[1:] if len(message.command) > 1 else []
+    target_lang = "en"
+    mode = "single"
+    batch_count = 3
+    custom_text = ""
+    auto_detect = False
 
-    text = ""
-    lang = "en"
-    
-    if len(message.command) > 2:
-        lang = message.command[1]
-        text = " ".join(message.command[2:])
-    elif len(message.command) > 1:
-        lang = message.command[1]
-        if message.reply_to_message:
-            text = message.reply_to_message.text or ""
-    elif message.reply_to_message:
-        text = message.reply_to_message.text or ""
-        lang = "en"
-    else:
-        return await message.edit_text("Usage: .tr [lang] [text] or reply to message")
-    
-    if not text:
-        return await message.edit_text("No text to translate!")
-    
-    try:
-        from googletrans import Translator
-        translator = Translator()
-        result = translator.translate(text, dest=lang)
-        await message.edit_text(
-            f"**Translated to {lang}:**\n{result.text}\n\n"
-            f"**Detected language:** {result.src}"
+    if not args:
+        mode = "single"
+    elif len(args) == 1:
+        if args[0].lower() in ["batch", "b"]:
+            mode = "batch"
+        elif args[0].lower() in ["quick", "q"]:
+            mode = "quick"
+        elif args[0].lower() == "auto":
+            auto_detect = True
+        else:
+            target_lang = args[0]
+    elif len(args) >= 2:
+        if args[0].lower() in ["batch", "b"]:
+            mode = "batch"
+            target_lang = args[1]
+            if len(args) > 2:
+                try:
+                    batch_count = min(int(args[2]), 10)
+                except:
+                    batch_count = 3
+        elif args[0].lower() in ["quick", "q"]:
+            mode = "quick"
+            target_lang = args[1]
+        elif args[0].lower() == "auto":
+            auto_detect = True
+            target_lang = args[1]
+        else:
+            target_lang = args[0]
+            custom_text = " ".join(args[1:])
+            mode = "single"
+
+    text_to_translate = ""
+    if custom_text:
+        text_to_translate = custom_text
+    elif message.reply_to_message and message.reply_to_message.text:
+        text_to_translate = message.reply_to_message.text
+    elif mode == "single":
+        return await message.edit_text(
+            "**🔤 Universal Translator Usage:**\n\n"
+            "**Single Translation:**\n"
+            "• `.tr` - Translate replied message to English\n"
+            "• `.tr es` - Translate replied message to Spanish\n"
+            "• `.tr fr Hello` - Translate 'Hello' to French\n\n"
+            "**Batch Translation:**\n"
+            "• `.tr batch` - Translate last 3 messages to English\n"
+            "• `.tr batch es 5` - Translate last 5 messages to Spanish\n\n"
+            "**Quick Translation:**\n"
+            "• `.tr quick` - Quick translate recent messages to English\n"
+            "• `.tr quick fr` - Quick translate recent messages to French\n\n"
+            "**Auto Detection:**\n"
+            "• `.tr auto` - Auto-detect language and translate to English\n"
+            "• `.tr auto es` - Auto-detect and translate to Spanish"
         )
+
+    status_msg = {
+        "batch": f"🔄 Collecting last {batch_count} messages for batch translation to {target_lang.upper()}...",
+        "quick": f"🚀 Quick translating recent messages to {target_lang.upper()}...",
+    }.get(mode, f"🔤 Translating to {target_lang.upper()}...")
+    
+    await message.edit_text(status_msg)
+
+    try:
+        translator_services = []
+        try:
+            from deep_translator import GoogleTranslator
+            translator_services.append(("Google", GoogleTranslator))
+        except: pass
+        try:
+            from deep_translator import MyMemoryTranslator
+            translator_services.append(("MyMemory", MyMemoryTranslator))
+        except: pass
+        try:
+            from deep_translator import LibreTranslator
+            translator_services.append(("Libre", LibreTranslator))
+        except: pass
+        if not translator_services:
+            return await message.edit_text("❌ No translation services available. Install: `pip install deep-translator`")
+        if mode == "single":
+            await handle_single_translation(message, text_to_translate, target_lang, auto_detect, translator_services)
+        elif mode == "batch":
+            await handle_batch_translation(client, message, target_lang, batch_count, translator_services)
+        elif mode == "quick":
+            await handle_quick_translation(client, message, target_lang, translator_services)
     except Exception as e:
-        await message.edit_text(f"Error: {str(e)}")
+        await message.edit_text(f"❌ Translation failed: {str(e)}")
+
+
+async def handle_single_translation(message, text, target_lang, auto_detect, translator_services):
+    if not text:
+        return await message.edit_text("❌ No text to translate!")
+    for service_name, TranslatorClass in translator_services:
+        try:
+            if auto_detect:
+                detector = TranslatorClass(source='auto', target='en')
+                detected_lang = detector.detect(text)
+                if detected_lang == target_lang:
+                    return await message.edit_text(
+                        f"✅ **Text is already in {target_lang.upper()}**\n\n"
+                        f"📝 **Text:** {text}\n"
+                        f"🔍 **Detected Language:** {detected_lang}"
+                    )
+            translator = TranslatorClass(source='auto', target=target_lang, base_url='https://libretranslate.de') if service_name == "Libre" else TranslatorClass(source='auto', target=target_lang)
+            translated_text = translator.translate(text)
+            try:
+                detected_lang = translator.detect(text) if hasattr(translator, 'detect') else TranslatorClass(source='auto', target='en').detect(text)
+            except:
+                detected_lang = "auto"
+            result = (
+                f"✅ **Translated to {target_lang.upper()}:**\n"
+                f"{translated_text}\n\n"
+                f"🔍 **Detected Language:** {detected_lang}\n"
+                f"🔧 **Service:** {service_name}"
+            )
+            if len(text) > 100:
+                result += f"\n\n📝 **Original:** {text[:200]}{'...' if len(text) > 200 else ''}"
+            return await message.edit_text(result)
+        except:
+            continue
+    await message.edit_text("❌ All translation services failed. Please try again later.")
+
+
+async def handle_batch_translation(client, message, target_lang, count, translator_services):
+    service_name, TranslatorClass = translator_services[0]
+    try:
+        translator = TranslatorClass(source='auto', target=target_lang, base_url='https://libretranslate.de') if service_name == "Libre" else TranslatorClass(source='auto', target=target_lang)
+    except:
+        return await message.edit_text("❌ Failed to initialize translator")
+    messages_to_translate = []
+    try:
+        async for msg in client.get_chat_history(message.chat.id, limit=50):
+            if msg.text and len(messages_to_translate) < count and msg.id != message.id:
+                messages_to_translate.append({'text': msg.text, 'sender': msg.from_user.first_name if msg.from_user else "Unknown", 'id': msg.id})
+            if len(messages_to_translate) >= count:
+                break
+    except Exception as e:
+        return await message.edit_text(f"❌ Failed to get chat history: {str(e)}")
+    if not messages_to_translate:
+        return await message.edit_text("❌ No messages found to translate")
+    messages_to_translate.reverse()
+    await message.edit_text(f"🔄 Translating {len(messages_to_translate)} messages to {target_lang.upper()}...")
+    translated_batch = []
+    for i, msg_data in enumerate(messages_to_translate):
+        try:
+            translated = translator.translate(msg_data['text'])
+            preview = msg_data['text'][:80] + "..." if len(msg_data['text']) > 80 else msg_data['text']
+            translated_batch.append(f"**{i+1}. {msg_data['sender']}:**\n📝 {preview}\n🔄 **{translated}**\n")
+        except:
+            translated_batch.append(f"**{i+1}. {msg_data['sender']}:** ❌ Translation failed\n")
+    result = f"📚 **Batch Translation to {target_lang.upper()}:**\n\n" + "\n".join(translated_batch) + f"\n🔧 **Service:** {service_name}"
+    if len(result) > 4000:
+        parts, part_num, current = [], 1, f"📚 **Batch Translation to {target_lang.upper()}:** (Part 1)\n\n"
+        for t in translated_batch:
+            if len(current + t) > 3500:
+                parts.append(current)
+                part_num += 1
+                current = f"📚 **Part {part_num}:**\n\n" + t
+            else:
+                current += t
+        if current:
+            parts.append(current)
+        await message.edit_text(parts[0])
+        for part in parts[1:]:
+            await message.reply_text(part)
+    else:
+        await message.edit_text(result)
+
+
+async def handle_quick_translation(client, message, target_lang, translator_services):
+    service_name, TranslatorClass = translator_services[0]
+    try:
+        translator = TranslatorClass(source='auto', target=target_lang, base_url='https://libretranslate.de') if service_name == "Libre" else TranslatorClass(source='auto', target=target_lang)
+    except:
+        return await message.edit_text("❌ Failed to initialize translator")
+    recent_messages = []
+    try:
+        async for msg in client.get_chat_history(message.chat.id, limit=10):
+            if msg.text and msg.id != message.id and len(recent_messages) < 3:
+                recent_messages.append(msg.text)
+    except Exception as e:
+        return await message.edit_text(f"❌ Failed to get recent messages: {str(e)}")
+    if not recent_messages:
+        return await message.edit_text("❌ No recent messages to translate")
+    recent_messages.reverse()
+    translated_messages = []
+    for i, text in enumerate(recent_messages):
+        try:
+            translated = translator.translate(text)
+            translated_messages.append(f"**{i+1}.** {translated}")
+        except:
+            translated_messages.append(f"**{i+1}.** ❌ Translation failed")
+    result = f"🚀 **Quick Translation to {target_lang.upper()}:**\n\n" + "\n\n".join(translated_messages) + f"\n\n🔧 **Service:** {service_name}"
+    await message.edit_text(result)
+    
 
 @app.on_message(filters.command("wiki", prefixes=".") & filters.me)
 async def wikipedia_search(client: Client, message: Message):
