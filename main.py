@@ -3263,18 +3263,6 @@ async def delete_auto_reaction(client: Client, message: Message):
         await message.edit_text(f"❌ No reaction found for trigger '{trigger}'")
 
 
-@app.on_message(filters.text & filters.incoming & ~filters.me)
-async def auto_reaction_handler(client: Client, message: Message):
-    if "reactions" in user_data:
-        text = message.text.lower()
-        for trigger, emoji in user_data["reactions"].items():
-            if re.search(r'\b' + re.escape(trigger) + r'\b', text):
-                try:
-                    await message.react([emoji])
-                except:
-                    pass
-                break
-
 @app.on_message(filters.command("ghost", prefixes=".") & filters.me)
 async def ghost_mode(client: Client, message: Message):
     if len(message.command) < 2:
